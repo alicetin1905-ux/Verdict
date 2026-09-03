@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>VERDICT · BTCUSD UM X-Perps</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:#0e1218; --panel2:#131923; --line:#1e2733;
+    --fg:#d8e0e9; --dim:#67788b; --dimmer:#3d4a59;
+    --long:#16d09a; --short:#ff4d6a; --wait:#f5a524; --accent:#4aa8ff;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:15px}
+  body{padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 24px);max-width:620px;margin:0 auto}
+  header{display:flex;align-items:center;gap:8px;padding:14px 2px 10px;border-bottom:1px solid var(--line)}
+  .brand{font-size:13px;letter-spacing:.22em;color:var(--fg)}
+  .inst{font-size:11px;color:var(--dim);margin-left:auto;text-align:right;line-height:1.35}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dimmer);flex:none}
+  .dot.ok{background:var(--long);box-shadow:0 0 8px rgba(22,208,154,.7)}
+  .dot.err{background:var(--short)}
+
+  .verdict{margin:14px 0 10px;padding:22px 18px;border:1px solid var(--line);border-radius:14px;
+           background:radial-gradient(120% 140% at 50% 0%,var(--panel2),var(--panel));text-align:center}
+  .verdict .word{font-size:clamp(44px,15vw,68px);font-weight:700;letter-spacing:.04em;line-height:1;transition:color .3s}
+  .verdict .sub{margin-top:10px;font-size:12px;color:var(--dim);letter-spacing:.05em}
+  .verdict .lev{margin-top:14px;font-size:11px;color:var(--dimmer)}
+  .is-long{color:var(--long)} .is-short{color:var(--short)} .is-wait{color:var(--wait)}
+
+  .price{display:flex;align-items:baseline;gap:10px;padding:0 4px 12px}
+  .price .last{font-size:30px;font-weight:600;letter-spacing:-.01em}
+  .price .chg{font-size:14px}
+  .price .tf{margin-left:auto;font-size:11px;color:var(--dim)}
+
+  canvas{width:100%;height:110px;display:block;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+  .cell{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px}
+  .cell .k{font-size:10px;color:var(--dim);letter-spacing:.08em}
+  .cell .v{font-size:16px;margin-top:4px}
+
+  .rows{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:10px 0}
+  .row{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .led{width:9px;height:9px;border-radius:50%;flex:none;background:var(--dimmer)}
+  .row .name{font-size:13px}
+  .row .cfg{font-size:10px;color:var(--dimmer);margin-left:4px}
+  .row .state{margin-left:auto;font-size:13px;text-align:right}
+  .row .det{display:block;font-size:10px;color:var(--dim);margin-top:2px}
+
+  .risk{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px;margin:10px 0;font-size:12px;line-height:1.7}
+  .risk b{font-weight:600}
+  .risk .warn{color:var(--wait)}
+
+  .controls{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  button{font-family:var(--mono);font-size:12px;color:var(--dim);background:var(--panel);
+         border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  button:hover{color:var(--fg)}
+  button.on{color:var(--bg);background:var(--fg);border-color:var(--fg)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .field{display:flex;gap:6px;margin-top:10px}
+  input,select{flex:1;font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--panel);
+        border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+  pre#log{margin:10px 0 0;padding:10px 12px;background:var(--panel);border:1px solid var(--line);
+      border-radius:8px;font-size:10px;line-height:1.6;color:var(--dim);white-space:pre-wrap;word-break:break-word;min-height:0}
+  pre#log:empty{display:none}
+  footer{margin-top:14px;font-size:10px;color:var(--dimmer);line-height:1.7}
+  .err{margin:10px 0;padding:10px 12px;border:1px solid var(--short);border-radius:10px;
+       background:rgba(255,77,106,.07);color:#ffb3c0;font-size:12px;line-height:1.6;display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <span class="brand">VERDICT</span>
+  <span class="inst" id="inst">finding contract…</span>
+</header>
+
+<div class="err" id="err"></div>
+
+<section class="verdict">
+  <div class="word is-wait" id="word">—</div>
+  <div class="sub" id="sub">waiting for the first closed candle</div>
+  <div class="lev" id="lev"></div>
+</section>
+
+<div class="price">
+  <span class="last" id="last">—</span>
+  <span class="chg" id="chg"></span>
+  <span class="tf" id="tflabel"></span>
+</div>
+
+<canvas id="spark" width="600" height="220" aria-label="Recent closes with Chandelier Exit stop"></canvas>
+
+<div class="grid">
+  <div class="cell"><div class="k">mark price</div><div class="v" id="mark">—</div></div>
+  <div class="cell"><div class="k">funding</div><div class="v" id="fund">—</div></div>
+  <div class="cell"><div class="k">signal age</div><div class="v" id="age">—</div></div>
+  <div class="cell"><div class="k">move since flip</div><div class="v" id="move">—</div></div>
+</div>
+
+<div class="rows">
+  <div class="row">
+    <span class="led" id="ledHtf"></span>
+    <span class="name">Higher timeframe<span class="cfg" id="htfCfg">—</span></span>
+    <span class="state" id="stHtf">—<span class="det" id="dtHtf">Chandelier 4 / 2</span></span>
+  </div>
+  <div class="row">
+    <span class="led" id="ledCe"></span>
+    <span class="name">Chandelier Exit<span class="cfg">4 / 2</span></span>
+    <span class="state" id="stCe">—<span class="det" id="dtCe">stop —</span></span>
+  </div>
+  <div class="row">
+    <span class="led" id="ledMacd"></span>
+    <span class="name">MACD<span class="cfg">5 / 35 / 5</span></span>
+    <span class="state" id="stMacd">—<span class="det" id="dtMacd">histogram —</span></span>
+  </div>
+</div>
+
+<div class="risk" id="risk">Risk read appears once both indicators have a closed-candle reading.</div>
+
+<div class="controls">
+  <div class="seg" id="tfSeg"></div>
+  <div class="field">
+    <select id="host">
+      <option value="https://www.okx.com">www.okx.com</option>
+      <option value="https://eea.okx.com">eea.okx.com (EEA)</option>
+      <option value="https://my.okx.com">my.okx.com</option>
+      <option value="https://app.okx.com">app.okx.com</option>
+    </select>
+    <button id="reload">Reload</button>
+  </div>
+  <div class="field">
+    <input id="manual" placeholder="override instId, e.g. BTC-USD-310328" autocapitalize="characters" spellcheck="false">
+    <button id="apply">Use</button>
+  </div>
+  <div class="field">
+    <input id="proxy" placeholder="worker proxy URL (leave empty to go direct)" autocapitalize="off" spellcheck="false">
+    <button id="applyProxy">Use</button>
+  </div>
+  <pre id="log"></pre>
+</div>
+
+<footer>
+  <div id="stamp">—</div>
+  <div>Signals read the last <b>closed</b> candle only, so nothing repaints. Price and funding update live.</div>
+</footer>
+
+<script>
+/* ---------------- config ---------------- */
+const CE_LEN = 4, CE_MULT = 2;
+const MACD_F = 5, MACD_S = 35, MACD_SIG = 5;
+const LEVERAGE = 10;
+const BARS = ['15m','1H','4H','1D'];
+const HTF = {'15m':'4H','1H':'4H','4H':'1D','1D':'1W'};
+const FRESH = 3, STALE = 8;
+
+const HOSTS = ['https://www.okx.com','https://eea.okx.com','https://my.okx.com','https://app.okx.com'];
+let host = HOSTS[0], proxy = null;
+let bar = '4H';
+let instId = null, instMeta = null, manualId = null;
+let candles = [], htf = null, lastPx = null, timer = null, fastTimer = null;
+
+/* ---------------- indicators (verified in node) ---------------- */
+function rma(v,len){const o=new Array(v.length).fill(null);let s=0;
+  for(let i=0;i<v.length;i++){ if(i<len){s+=v[i]; if(i===len-1)o[i]=s/len;} else o[i]=(o[i-1]*(len-1)+v[i])/len; } return o;}
+function atr(c,len){const tr=c.map((k,i)=> i===0? k.h-k.l : Math.max(k.h-k.l,Math.abs(k.h-c[i-1].c),Math.abs(k.l-c[i-1].c)));return rma(tr,len);}
+function ema(v,len){const o=new Array(v.length).fill(null);const k=2/(len+1);let s=0;
+  for(let i=0;i<v.length;i++){ if(i<len){s+=v[i]; if(i===len-1)o[i]=s/len;} else o[i]=v[i]*k+o[i-1]*(1-k);} return o;}
+function chandelier(c,len,mult){
+  const a=atr(c,len), ls=[], ss=[], dir=[];
+  for(let i=0;i<c.length;i++){
+    if(a[i]==null){ls.push(null);ss.push(null);dir.push(1);continue;}
+    let hi=-Infinity,lo=Infinity;
+    for(let j=Math.max(0,i-len+1);j<=i;j++){hi=Math.max(hi,c[j].c);lo=Math.min(lo,c[j].c);}
+    let L=hi-mult*a[i], S=lo+mult*a[i];
+    const Lp=ls[i-1]!=null?ls[i-1]:L, Sp=ss[i-1]!=null?ss[i-1]:S;
+    if(i>0&&c[i-1].c>Lp) L=Math.max(L,Lp);
+    if(i>0&&c[i-1].c<Sp) S=Math.min(S,Sp);
+    let d=dir[i-1]!==undefined?dir[i-1]:1;
+    if(c[i].c>Sp) d=1; else if(c[i].c<Lp) d=-1;
+    ls.push(L);ss.push(S);dir.push(d);
+  }
+  return {ls,ss,dir};
+}
+function macd(c,f,s,sig){
+  const cl=c.map(x=>x.c), ef=ema(cl,f), es=ema(cl,s);
+  const line=cl.map((_,i)=>(ef[i]!=null&&es[i]!=null)?ef[i]-es[i]:null);
+  const start=line.findIndex(v=>v!=null);
+  const signal=new Array(start).fill(null).concat(ema(line.slice(start),sig));
+  const hist=line.map((v,i)=>(v!=null&&signal[i]!=null)?v-signal[i]:null);
+  return {line,signal,hist};
+}
+
+/* ---------------- api ---------------- */
+function base(){ return proxy ? proxy.replace(/\/+$/,'') : host; }
+async function api(path){
+  let r;
+  try{ r = await fetch(base() + path, {cache:'no-store'}); }
+  catch(e){ const err = new Error('request blocked before any reply — CORS, DNS or offline'); err.kind='net'; throw err; }
+  if(!r.ok){ const err = new Error('HTTP ' + r.status); err.kind='http'; throw err; }
+  const j = await r.json();
+  if(j.code !== '0'){ const err = new Error('OKX code ' + j.code + ' — ' + (j.msg||'no message')); err.kind='okx'; throw err; }
+  return j.data;
+}
+
+// Pull every live futures contract, then narrow to BTC. Falls back to the
+// per-family query if this host rejects an unfiltered list.
+async function listFutures(){
+  try{ return await api('/api/v5/public/instruments?instType=FUTURES'); }
+  catch(e){
+    if(e.kind === 'net') throw e;
+    let all = [];
+    for(const fam of ['BTC-USD','BTC-USDC','BTC-USDG','BTC-USDT']){
+      try{ all = all.concat(await api('/api/v5/public/instruments?instType=FUTURES&instFamily='+fam)); }
+      catch(e2){ if(e2.kind === 'net') throw e2; }
+    }
+    if(!all.length) throw e;
+    return all;
+  }
+}
+async function findInstrument(){
+  if(manualId){
+    const d = await api('/api/v5/public/instruments?instType=FUTURES&instId='+manualId);
+    if(!d.length) throw new Error('no live instrument called ' + manualId);
+    return d[0];
+  }
+  const live = (await listFutures()).filter(x => x.state === 'live');
+  const btc  = live.filter(x => /^BTC-/.test(x.instId));
+  note(live.length + ' live futures, ' + btc.length + ' on BTC');
+  if(!btc.length) throw new Error('this host lists no BTC futures at all');
+
+  let xp = btc.filter(x => x.ruleType === 'xperp');
+  if(!xp.length) xp = btc.filter(x => /five_years/.test(x.alias||''));
+  if(!xp.length) xp = btc.filter(x => Number(x.expTime) - Date.now() > 900*864e5);
+  if(!xp.length){
+    const sample = btc.slice(0,6).map(x=>x.instId).join(', ');
+    throw new Error('BTC futures exist here but none are X-Perps. Listed: ' + sample);
+  }
+  xp.sort((a,b)=>Number(a.expTime)-Number(b.expTime));
+  return xp[0];
+}
+async function getCandles(tf){
+  const d = await api('/api/v5/market/candles?instId='+instId+'&bar='+tf+'&limit=300');
+  return d.map(r=>({t:+r[0],o:+r[1],h:+r[2],l:+r[3],c:+r[4],closed:r[8]==='1'}))
+          .sort((a,b)=>a.t-b.t);
+}
+
+/* ---------------- render ---------------- */
+const $ = id => document.getElementById(id);
+const note = m => { $('log').textContent += m + '\n'; };
+const fmt = (n,d=1) => n==null||!isFinite(n) ? '—' : Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+function showError(msg){
+  const e = $('err');
+  e.style.display = 'block';
+  e.textContent = msg;
+  $('dot').className = 'dot err';
+}
+function clearError(){ $('err').style.display='none'; $('dot').className='dot ok'; }
+
+function paint(){
+  const closed = candles.filter(c=>c.closed);
+  if(closed.length < MACD_S + MACD_SIG + 5){ return; }
+  const ce = chandelier(closed, CE_LEN, CE_MULT);
+  const md = macd(closed, MACD_F, MACD_S, MACD_SIG);
+  const i = closed.length - 1;
+  const px = lastPx ?? closed[i].c;
+
+  const ceDir = ce.dir[i];
+  const ceStop = ceDir === 1 ? ce.ls[i] : ce.ss[i];
+  const hist = md.hist[i], histPrev = md.hist[i-1];
+  const macdDir = hist > 0 ? 1 : -1;
+
+  $('ledCe').style.background = ceDir===1 ? 'var(--long)' : 'var(--short)';
+  $('stCe').childNodes[0].nodeValue = ceDir===1 ? 'long' : 'short';
+  $('stCe').style.color = ceDir===1 ? 'var(--long)' : 'var(--short)';
+  $('dtCe').textContent = 'stop ' + fmt(ceStop);
+
+  $('ledMacd').style.background = macdDir===1 ? 'var(--long)' : 'var(--short)';
+  $('stMacd').childNodes[0].nodeValue = macdDir===1 ? 'bullish' : 'bearish';
+  $('stMacd').style.color = macdDir===1 ? 'var(--long)' : 'var(--short)';
+  const slope = (hist>histPrev) ? 'rising' : 'falling';
+  $('dtMacd').textContent = 'hist ' + fmt(hist,1) + ' · ' + slope;
+
+  // how long the current Chandelier direction has been running
+  let flipIdx = i;
+  while(flipIdx > 0 && ce.dir[flipIdx-1] === ceDir) flipIdx--;
+  const truncated = flipIdx === 0;
+  const bars = i - flipIdx;
+  const flipPx = closed[flipIdx].c;
+  const moveSince = (px - flipPx) / flipPx * 100;
+  const ageTxt = (truncated ? '≥' : '') + bars + (bars === 1 ? ' bar' : ' bars');
+  $('age').textContent = ageTxt;
+  $('age').style.color = truncated ? 'var(--dim)' : bars <= FRESH ? 'var(--long)' : bars <= STALE ? 'var(--wait)' : 'var(--dim)';
+  $('move').textContent = (moveSince>=0?'+':'') + moveSince.toFixed(2) + '%';
+  $('move').style.color = (moveSince>=0) === (ceDir===1) ? 'var(--fg)' : 'var(--short)';
+
+  // higher timeframe
+  let htfOk = true, htfTxt = '';
+  if(htf){
+    htfOk = htf.dir === ceDir;
+    htfTxt = htf.tf + ' ' + (htf.dir===1 ? 'long' : 'short');
+    $('htfCfg').textContent = htf.tf;
+    $('ledHtf').style.background = htf.dir===1 ? 'var(--long)' : 'var(--short)';
+    $('stHtf').childNodes[0].nodeValue = htf.dir===1 ? 'long' : 'short';
+    $('stHtf').style.color = htf.dir===1 ? 'var(--long)' : 'var(--short)';
+    $('dtHtf').textContent = 'stop ' + fmt(htf.stop);
+  } else {
+    $('htfCfg').textContent = HTF[bar] || '—';
+    $('ledHtf').style.background = 'var(--dimmer)';
+    $('stHtf').childNodes[0].nodeValue = 'n/a';
+    $('stHtf').style.color = 'var(--dim)';
+    $('dtHtf').textContent = 'no data — filter is off';
+  }
+
+  // verdict: both indicators agree, and the higher timeframe does not object
+  const agree = ceDir === macdDir;
+  let word, cls, sub;
+  if(agree && htfOk){
+    word = ceDir===1 ? 'LONG' : 'SHORT';
+    cls  = ceDir===1 ? 'is-long' : 'is-short';
+    sub  = htf ? 'both indicators agree and ' + htfTxt + ' backs it'
+               : 'both indicators agree · higher timeframe unavailable';
+  } else if(agree){
+    word='WAIT'; cls='is-wait';
+    sub = bar + ' turned ' + (ceDir===1?'long':'short') + ' against ' + htfTxt;
+  } else {
+    word='WAIT'; cls='is-wait';
+    sub = 'Chandelier ' + (ceDir===1?'long':'short') + ', MACD ' + (macdDir===1?'bullish':'bearish');
+  }
+  const w = $('word'); w.textContent = word; w.className = 'word ' + cls; $('sub').textContent = sub;
+
+  // risk at 10x
+  const dist = Math.abs(px - ceStop) / px * 100;
+  const marginRisk = dist * LEVERAGE;
+  const liqRoom = (100 / LEVERAGE);
+  let riskHtml;
+  if(word === 'WAIT'){
+    $('lev').textContent = agree ? 'countertrend — sit it out' : 'no side while they disagree';
+    riskHtml = 'Chandelier stop sits at <b>'+fmt(ceStop)+'</b>, '+dist.toFixed(2)+'% away. '+
+               (agree ? 'Wait for ' + htfTxt.split(' ')[0] + ' to turn, or trade it small and manually.'
+                      : 'Nothing to size until the two agree.');
+  } else {
+    $('lev').textContent = LEVERAGE + 'x · invalidation at ' + fmt(ceStop);
+    riskHtml = 'Stop at <b>'+fmt(ceStop)+'</b> is <b>'+dist.toFixed(2)+'%</b> from price. '+
+      'At '+LEVERAGE+'x that stop costs <b>'+marginRisk.toFixed(1)+'%</b> of margin if hit.<br>'+
+      'Liquidation sits near a '+liqRoom.toFixed(1)+'% adverse move, so ' +
+      (dist > liqRoom*0.8
+        ? '<span class="warn">the stop is inside liquidation range — cut the leverage or wait for a tighter stop.</span>'
+        : 'the stop triggers well before liquidation.') +
+      '<br>To risk 1% of the account, size the position at ' + (1/marginRisk*100).toFixed(1) + '% of your margin.' +
+      '<br>Signal is ' + ageTxt + ' old, ' + Math.abs(moveSince).toFixed(2) + '% travelled. ' +
+      (truncated ? 'The flip predates the loaded history, so treat it as a mature move.'
+        : bars <= FRESH ? 'Fresh flip — the stop is as tight as it gets.'
+        : bars <= STALE ? 'Mid-move entry — the stop has widened behind price.'
+        : '<span class="warn">Late entry. Most of the move is behind you and the stop is far.</span>');
+  }
+  $('risk').innerHTML = riskHtml;
+
+  $('stamp').textContent = 'last closed ' + bar + ' candle: ' +
+      new Date(closed[i].t).toLocaleString([], {month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}) +
+      ' · ' + closed.length + ' bars loaded';
+
+  drawSpark(closed.slice(-120), ce, closed.length);
+}
+
+function drawSpark(view, ce, total){
+  const cv = $('spark'), dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w*dpr; cv.height = h*dpr;
+  const g = cv.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,w,h);
+  const off = total - view.length;
+  const stops = view.map((_,k)=> ce.dir[off+k]===1 ? ce.ls[off+k] : ce.ss[off+k]);
+  const vals = view.map(c=>c.c).concat(stops.filter(v=>v!=null));
+  const min = Math.min(...vals), max = Math.max(...vals), pad = (max-min)*0.12 || 1;
+  const X = k => 6 + k*(w-12)/(view.length-1);
+  const Y = v => h-8 - (v-min+pad/2)/((max-min)+pad)*(h-16);
+
+  g.lineWidth = 1; g.setLineDash([2,4]); g.strokeStyle = 'rgba(103,120,139,.55)';
+  view.forEach((c,k)=>{ if(stops[k]==null) return;
+    g.beginPath(); g.moveTo(X(k)-1,Y(stops[k])); g.lineTo(X(k)+1,Y(stops[k])); g.stroke(); });
+  g.setLineDash([]);
+
+  g.lineWidth = 1.6; g.lineJoin='round';
+  for(let k=1;k<view.length;k++){
+    g.strokeStyle = ce.dir[off+k]===1 ? 'rgba(22,208,154,.95)' : 'rgba(255,77,106,.95)';
+    g.beginPath(); g.moveTo(X(k-1),Y(view[k-1].c)); g.lineTo(X(k),Y(view[k].c)); g.stroke();
+  }
+  const lastY = Y(view[view.length-1].c);
+  g.fillStyle = ce.dir[total-1]===1 ? '#16d09a' : '#ff4d6a';
+  g.beginPath(); g.arc(X(view.length-1), lastY, 3, 0, 7); g.fill();
+}
+
+/* ---------------- loops ---------------- */
+async function tickFast(){
+  if(!instId) return;
+  try{
+    const [t] = await api('/api/v5/market/ticker?instId='+instId);
+    lastPx = +t.last;
+    const open24 = +t.open24h, chg = (lastPx-open24)/open24*100;
+    $('last').textContent = fmt(lastPx);
+    $('chg').textContent = (chg>=0?'+':'') + chg.toFixed(2) + '% 24h';
+    $('chg').style.color = chg>=0 ? 'var(--long)' : 'var(--short)';
+    clearError();
+  }catch(e){ showError(e.message); return; }
+
+  try{
+    const [m] = await api('/api/v5/public/mark-price?instType=FUTURES&instId='+instId);
+    $('mark').textContent = fmt(+m.markPx);
+  }catch(e){ $('mark').textContent = 'n/a'; }
+
+  try{
+    const [f] = await api('/api/v5/public/funding-rate?instId='+instId);
+    const rate = +f.fundingRate*100;
+    const mins = Math.max(0, Math.round((+f.nextFundingTime - Date.now())/60000));
+    $('fund').innerHTML = '<span style="color:'+(rate>=0?'var(--long)':'var(--short)')+'">' +
+      (rate>=0?'+':'') + rate.toFixed(4) + '%</span> <span style="font-size:11px;color:var(--dim)">in ' +
+      Math.floor(mins/60) + 'h' + String(mins%60).padStart(2,'0') + '</span>';
+  }catch(e){ $('fund').textContent = 'n/a'; }
+
+  if(candles.length) paint();
+}
+async function tickSlow(){
+  if(!instId) return;
+  try{
+    candles = await getCandles(bar);
+    try{
+      const hc = (await getCandles(HTF[bar])).filter(c=>c.closed);
+      if(hc.length > CE_LEN + 2){
+        const h = chandelier(hc, CE_LEN, CE_MULT);
+        htf = {tf:HTF[bar], dir:h.dir[hc.length-1], stop:h.dir[hc.length-1]===1?h.ls[hc.length-1]:h.ss[hc.length-1], t:hc[hc.length-1].t};
+      } else htf = null;
+    }catch(e){ htf = null; }
+    clearError(); paint();
+  }
+  catch(e){ showError(e.message); }
+}
+async function boot(){
+  clearInterval(timer); clearInterval(fastTimer);
+  $('dot').className = 'dot';
+  $('inst').textContent = 'finding contract…';
+  $('log').textContent = '';
+  instId = null;
+
+  const queue = proxy ? [null] : [host, ...HOSTS.filter(h => h !== host)];
+  let found = null;
+  for(const h of queue){
+    if(h) host = h;
+    note('— ' + (proxy ? 'proxy ' + proxy : h));
+    try{ found = await findInstrument(); break; }
+    catch(e){ note('  ✕ ' + e.message); }
+  }
+  if(!found){
+    showError('No host answered with an X-Perp. Read the log below: "blocked before any reply" means CORS — you need the Worker proxy. Anything else is a listing problem.');
+    $('host').value = queue[0] || '';
+    return;
+  }
+  instMeta = found; instId = found.instId;
+  const exp = new Date(+found.expTime);
+  $('inst').innerHTML = instId + '<br>expires ' + exp.toISOString().slice(0,10) +
+     ' · settles ' + (found.settleCcy||'—') + ' · max ' + (found.lever||'—') + 'x';
+  note('  ✓ using ' + instId + (proxy ? '' : ' via ' + host));
+  if(!proxy) $('host').value = host;
+  clearError();
+  await tickSlow();
+  await tickFast();
+  fastTimer = setInterval(tickFast, 10000);
+  timer = setInterval(tickSlow, 60000);
+}
+
+/* ---------------- controls ---------------- */
+const seg = $('tfSeg');
+BARS.forEach(b=>{
+  const btn = document.createElement('button');
+  btn.textContent = b; btn.className = b===bar ? 'on' : '';
+  btn.onclick = ()=>{ bar=b; $('tflabel').textContent=b+' signals';
+    [...seg.children].forEach(x=>x.className=''); btn.className='on'; tickSlow(); };
+  seg.appendChild(btn);
+});
+$('tflabel').textContent = bar + ' signals';
+$('host').onchange = e => { host = e.target.value; proxy = null; $('proxy').value=''; boot(); };
+$('reload').onclick = boot;
+$('apply').onclick = ()=>{ const v=$('manual').value.trim().toUpperCase(); manualId = v||null; boot(); };
+$('applyProxy').onclick = ()=>{ const v=$('proxy').value.trim(); proxy = v||null; boot(); };
+window.addEventListener('resize', ()=>{ if(candles.length) paint(); });
+boot();
+</script>
+</body>
+</html>
